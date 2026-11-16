@@ -1,8 +1,8 @@
 import { Bot, Context } from "grammy";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 
-const db = new Database("stats.db");
-db.pragma("journal_mode = WAL");
+const db = new DatabaseSync("stats.db");
+db.exec("PRAGMA journal_mode = WAL");
 db.exec(`
 CREATE TABLE IF NOT EXISTS status (
   chat_id INTEGER NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ephemeral (
 );
 `);
 
-const qStatus = db.prepare<[number, number], { enabled: number }>(
+const qStatus = db.prepare(
   "SELECT enabled FROM status WHERE chat_id = ? AND thread_id = ?",
 );
 const qUpsertStatus = db.prepare(
@@ -46,23 +46,12 @@ const qIncrement = db.prepare(`
     chars_with_spaces = chars_with_spaces + excluded.chars_with_spaces,
     chars_without_spaces = chars_without_spaces + excluded.chars_without_spaces
 `);
-const qToday = db.prepare<
-  [number, number, number, string],
-  {
-    messages: number;
-    words: number;
-    chars_with_spaces: number;
-    chars_without_spaces: number;
-  }
->(
+const qToday = db.prepare(
   "SELECT messages, words, chars_with_spaces, chars_without_spaces FROM counts " +
     "WHERE chat_id = ? AND thread_id = ? AND user_id = ? AND date = ?",
 );
 
-const qGetEphemeral = db.prepare<
-  [number, number, number],
-  { message_id: number }
->(
+const qGetEphemeral = db.prepare(
   "SELECT message_id FROM ephemeral WHERE chat_id = ? AND thread_id = ? AND user_id = ?",
 );
 const qPutEphemeral = db.prepare(
@@ -81,7 +70,7 @@ function removeEphemeral(chatId: number, threadId: number, userId: number) {
   if (!row) return;
   qDeleteEphemeral.run(chatId, threadId, userId);
   return bot.api
-    .deleteEphemeralMessage(chatId, userId, row.message_id)
+    .deleteEphemeralMessage(chatId, userId, row.message_id as number)
     .catch(() => {});
 }
 
@@ -101,7 +90,7 @@ function sendEphemeral(ctx: Context, text: string) {
       })
       .then((sent) => {
         console.log(sent);
-        qPutEphemeral.run(chatId, threadId, userId, sent.ephemeral_message_id);
+        qPutEphemeral.run(chatId, threadId, userId, sent.ephemeral_message_id!);
       });
   return prev ? prev.then(send, send) : send();
 }
